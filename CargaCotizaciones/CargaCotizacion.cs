@@ -25,7 +25,7 @@ namespace CargaCotizaciones
         //50 23 * * *
 
         [Function("Function1")]
-        public void Run([TimerTrigger("*/1 * * * *")] TimerInfo myTimer)
+        public void Run([TimerTrigger("50 23 * * *")] TimerInfo myTimer)
         {
 
             //_logger.LogInformation($"C# Timer trigger function executed at: {DateTime.Now}");
