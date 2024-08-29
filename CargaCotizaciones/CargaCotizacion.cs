@@ -90,8 +90,7 @@ namespace CargaCotizaciones
 
                 _logger.LogInformation($"Error al cargar cotizaciones a las: {DateTime.Now}");
                 _logger.LogInformation(Ex.ToString());
-                throw Excepcion;
-                ;
+
             }
 
         }
@@ -211,9 +210,8 @@ namespace CargaCotizaciones
             catch (Exception Ex)
             {
 
-                ; Exception Excepcion = new Exception("Error al recuperar las cotizaciones", Ex);
-                throw Excepcion;
-                ;
+                Exception Excepcion = new Exception("Error al recuperar las cotizaciones", Ex);
+                
             }
         }
 
