@@ -8,6 +8,9 @@ using System.Net;
 using Newtonsoft.Json.Linq;
 using HtmlAgilityPack;
 using ScrapySharp.Extensions;
+using System.Collections;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 namespace CargaCotizaciones
 {
@@ -22,31 +25,34 @@ namespace CargaCotizaciones
 
 
 
-        //50 23 * * *
+        //0 0 18 * * *
 
-        [Function("Function1")]
-        public void Run([TimerTrigger("50 23 * * *")] TimerInfo myTimer)
+        [Function("CargaCotizaciones")]
+        public void Run([TimerTrigger("0 0 18 * * *")] TimerInfo myTimer)
         {
 
-            //_logger.LogInformation($"C# Timer trigger function executed at: {DateTime.Now}");
 
-
-            //if (myTimer.ScheduleStatus is not null)
-            //{
-            //    _logger.LogInformation($"Next timer schedule at: {myTimer.ScheduleStatus.Next}");
-            //}
+            if (myTimer.ScheduleStatus is not null)
+            {
+                _logger.LogInformation($"Next timer schedule at: {myTimer.ScheduleStatus.Next}");
+            }
 
 
             try
             {
-                // conexion
+                //conexion
+                //string connectionString = Environment.GetEnvironmentVariable("SQLCONNSTR_SQLconnectionString", EnvironmentVariableTarget.Process);
                 string connectionString = Environment.GetEnvironmentVariable("SQLconnectionString");
+
+                //_logger.LogInformation(connectionString);
 
                 using var connection = new SqlConnection(connectionString);
 
+                
+
                 connection.Open();
 
-
+                
 
                 var sqlConsultaActivos = @"SELECT idActivo, simbolo, TA.nombre TIPOACTIVO
                                         FROM Dim_Activo A INNER JOIN Dim_Tipo_Activo 
@@ -54,6 +60,8 @@ namespace CargaCotizaciones
                                         ORDER BY ESREFERENCIA DESC, IDACTIVO ASC;";
 
                 SqlCommand cmdActivos = null;
+
+               
 
                 cmdActivos = new SqlCommand(sqlConsultaActivos, connection);
 
@@ -76,9 +84,23 @@ namespace CargaCotizaciones
                 Activo mon1 = ListaActivos.First();
 
                 int contCotiz = 0;
+
+
+                //datos api cripto
+
+                string apiKey = "3a299154-851c-4a53-96d9-9ea65ea9abf7";
+
+                client.DefaultRequestHeaders.Add("X-CMC_PRO_API_KEY", apiKey);
+
                 foreach (Activo mon2 in ListaActivos)
                 {
-                    UpdateCotizacionesGral(mon1, mon2, contCotiz);
+                    //_logger.LogInformation(mon2.ToString());
+
+                    if (mon1 != mon2)
+                    {
+                        UpdateCotizacionesGral(mon1, mon2, contCotiz);
+                    }
+                    
                 }
 
                 _logger.LogInformation($"Cotizaciones cargadas correctamente a las : {DateTime.Now}");
@@ -99,6 +121,8 @@ namespace CargaCotizaciones
         {
             string par = mon1.Simbolo + mon2.Simbolo;
 
+            
+
             if (mon2.TipoActivo != "Moneda" && mon2.TipoActivo != "Criptomoneda")
             {
                 par = mon2.Simbolo;
@@ -106,11 +130,18 @@ namespace CargaCotizaciones
             }
             else
             {
+                
                 if (par == "USDARS")
                 {
                     insertCotizaciones(mon1.IdActivo.ToString(), mon2.IdActivo.ToString(), par + "B", 0, mon2.TipoActivo);
                     insertCotizaciones(mon1.IdActivo.ToString(), mon2.IdActivo.ToString(), par + "BO", 0, mon2.TipoActivo);
                     insertCotizaciones(mon1.IdActivo.ToString(), mon2.IdActivo.ToString(), par + "T", 0, mon2.TipoActivo);
+                }
+                else if (mon2.TipoActivo == "Criptomoneda")
+                {
+                    contCotiz++;
+                    par = mon2.Simbolo;
+                    insertCotizaciones(mon1.IdActivo.ToString(), mon2.IdActivo.ToString(), par, contCotiz, mon2.TipoActivo);
                 }
                 else
                 {
@@ -123,7 +154,7 @@ namespace CargaCotizaciones
             return contCotiz;
         }
 
-        private void insertCotizaciones(string idMon1, string idMon2, string par, int contCotiz, string tipoActivo)
+        private  void insertCotizaciones(string idMon1, string idMon2, string par, int contCotiz, string tipoActivo)
         {
 
 
@@ -131,6 +162,7 @@ namespace CargaCotizaciones
             {
 
                 // conexion
+                // string connectionString = Environment.GetEnvironmentVariable("SQLCONNSTR_SQLconnectionString", EnvironmentVariableTarget.Process);
                 string connectionString = Environment.GetEnvironmentVariable("SQLconnectionString");
 
                 using var connection = new SqlConnection(connectionString);
@@ -141,16 +173,13 @@ namespace CargaCotizaciones
 
 
                 string valorCotiz;
-                if (tipoActivo == "Moneda" || tipoActivo == "Criptomoneda")
+                if (tipoActivo == "Moneda")
                 {
-                    if (par == "USDTUSD" || par == "DAIUSD")
-                    {
-                        valorCotiz = "1";
-                    }
-                    else
-                    {
-                        valorCotiz = checkCotizacion(par, contCotiz);
-                    }
+                    valorCotiz = checkCotizacion(par, contCotiz);
+                }
+                else if (tipoActivo == "Criptomoneda")
+                {
+                    valorCotiz = checkCotizacionCripto(par, contCotiz);
                 }
                 else
                 {
@@ -213,6 +242,34 @@ namespace CargaCotizaciones
                 Exception Excepcion = new Exception("Error al recuperar las cotizaciones", Ex);
                 
             }
+        }
+        private static readonly HttpClient client = new HttpClient();
+
+        public string checkCotizacionCripto(string simbolo, int contCotiz)
+        {
+            string cotiz;
+            string convertToCurrency = "USD";
+
+            
+
+            string currencyPair = simbolo;
+
+            var url = $"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={simbolo}&convert={convertToCurrency}";
+
+            
+
+            // Realizar la solicitud GET
+            HttpResponseMessage response = client.GetAsync(url).Result;
+            response.EnsureSuccessStatusCode();
+
+            // Leer la respuesta como string
+            string responseBody = response.Content.ReadAsStringAsync().Result;
+
+            // Parsear el JSON usando Newtonsoft.Json
+            JObject json = JObject.Parse(responseBody);
+            decimal price = json["data"][simbolo]["quote"][convertToCurrency]["price"].Value<decimal>();
+
+            return Convert.ToString(1 / price);
         }
 
         public string checkCotizacion(string par, int contCotiz)
