@@ -28,7 +28,7 @@ namespace CargaCotizaciones
         //0 0 18 * * *
 
         [Function("CargaCotizaciones")]
-        public void Run([TimerTrigger("0 0 18 * * *")] TimerInfo myTimer)
+        public void Run([TimerTrigger("0 0 8 * * *")] TimerInfo myTimer)
         {
 
 
