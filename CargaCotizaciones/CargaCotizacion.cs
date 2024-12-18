@@ -25,10 +25,11 @@ namespace CargaCotizaciones
 
 
 
-        //0 0 18 * * *
+        //0 24 14 * * *
+        // 0 */5 * * * *
 
         [Function("CargaCotizaciones")]
-        public void Run([TimerTrigger("0 0 8 * * *")] TimerInfo myTimer)
+        public void Run([TimerTrigger("0 24 14 * * *")] TimerInfo myTimer)
         {
 
 
@@ -41,8 +42,8 @@ namespace CargaCotizaciones
             try
             {
                 //conexion
-                //string connectionString = Environment.GetEnvironmentVariable("SQLCONNSTR_SQLconnectionString", EnvironmentVariableTarget.Process);
-                string connectionString = Environment.GetEnvironmentVariable("SQLconnectionString");
+                string connectionString = Environment.GetEnvironmentVariable("SQLCONNSTR_SQLconnectionString", EnvironmentVariableTarget.Process);
+                //string connectionString = Environment.GetEnvironmentVariable("SQLconnectionString");
 
                 //_logger.LogInformation(connectionString);
 
@@ -54,10 +55,11 @@ namespace CargaCotizaciones
 
                 
 
-                var sqlConsultaActivos = @"SELECT idActivo, simbolo, TA.nombre TIPOACTIVO
-                                        FROM Dim_Activo A INNER JOIN Dim_Tipo_Activo 
-                                        TA ON TA.idTipoActivo = A.idtipoactivo 
-                                        ORDER BY ESREFERENCIA DESC, IDACTIVO ASC;";
+                var sqlConsultaActivos = @"SELECT A.Id ASSETID, Symbol, AT.NAME ASSETTYPE
+                                            FROM ASSETS A INNER JOIN ASSETTYPES 
+                                            AT ON AT.ID = A.ASSETTYPEID
+                                            WHERE A.NAME  <> 'Dolar Estadounidense'
+                                            ORDER BY A.ID ASC;";
 
                 SqlCommand cmdActivos = null;
 
@@ -73,15 +75,38 @@ namespace CargaCotizaciones
                 while (reader.Read())
                 {
                     Activo activo = new Activo();
-                    activo.IdActivo = (int)reader["idActivo"];
-                    activo.Simbolo = (string)reader["Simbolo"];
-                    activo.TipoActivo = (string)reader["TIPOACTIVO"];
+                    activo.IdActivo = (int)reader["ASSETID"];
+                    activo.Simbolo = (string)reader["Symbol"];
+                    activo.TipoActivo = (string)reader["ASSETTYPE"];
                     ListaActivos.Add(activo);
                 }
 
                 reader.Close();
 
-                Activo mon1 = ListaActivos.First();
+
+                var consultaDolar = @"SELECT A.Id ASSETID, Symbol, AT.NAME ASSETTYPE
+                                            FROM ASSETS A INNER JOIN ASSETTYPES 
+                                            AT ON AT.ID = A.ASSETTYPEID
+                                            WHERE A.NAME  = 'Dolar Estadounidense'";
+
+                SqlCommand cmdDolar = null;
+
+                cmdDolar = new SqlCommand(consultaDolar, connection);
+
+                SqlDataReader readerDolar = cmdDolar.ExecuteReader();
+                
+                Activo dolar = new Activo();
+
+                while (readerDolar.Read())
+                {
+                    dolar.IdActivo = (int)readerDolar["ASSETID"];
+                    dolar.Simbolo = (string)readerDolar["Symbol"];
+                    dolar.TipoActivo = (string)readerDolar["ASSETTYPE"];
+                }
+                reader.Close();
+
+
+                
 
                 int contCotiz = 0;
 
@@ -96,14 +121,15 @@ namespace CargaCotizaciones
                 {
                     //_logger.LogInformation(mon2.ToString());
 
-                    if (mon1 != mon2)
+                    if (dolar != mon2)
                     {
-                        UpdateCotizacionesGral(mon1, mon2, contCotiz);
+                        UpdateCotizacionesGral(dolar, mon2, contCotiz);
                     }
                     
                 }
 
                 _logger.LogInformation($"Cotizaciones cargadas correctamente a las : {DateTime.Now}");
+                
             }
             catch (Exception Ex)
             {
@@ -162,8 +188,8 @@ namespace CargaCotizaciones
             {
 
                 // conexion
-                // string connectionString = Environment.GetEnvironmentVariable("SQLCONNSTR_SQLconnectionString", EnvironmentVariableTarget.Process);
-                string connectionString = Environment.GetEnvironmentVariable("SQLconnectionString");
+                 string connectionString = Environment.GetEnvironmentVariable("SQLCONNSTR_SQLconnectionString", EnvironmentVariableTarget.Process);
+                //string connectionString = Environment.GetEnvironmentVariable("SQLconnectionString");
 
                 using var connection = new SqlConnection(connectionString);
 
@@ -209,17 +235,16 @@ namespace CargaCotizaciones
                         tipo = "NA";
                     }
 
-                    string sqlQuery = "INSERT INTO Cotizacion_Activo (idActivoBase, idActivoComp, idFecha, tipo, valor) VALUES ('@ID1', '@ID2', CAST(FORMAT(DATEADD(HOUR, -3,GETDATE()), 'yyyyMMdd') AS INTEGER), '@TIPO', @VALOR)";
+                    string sqlQuery = "INSERT INTO ASSETQUOTES (ASSETID, DATE, TYPE, VALUE) VALUES ('@ID2', DATEADD(DAY, 0, DATEDIFF(DAY, 0, GETDATE())), '@TIPO', @VALOR)";
 
-                    sqlQuery = sqlQuery.Replace("@ID1", idMon1);
                     sqlQuery = sqlQuery.Replace("@ID2", idMon2);
                     sqlQuery = sqlQuery.Replace("@TIPO", tipo);
 
-                    if (tipoActivo == "FCI" || tipoActivo == "Bonos" || tipoActivo == "CEDEAR" ||
+                    if (tipoActivo == "FCI" || tipoActivo == "Bono" || tipoActivo == "CEDEAR" ||
                         tipoActivo == "Accion Argentina")
                     {
-                        string sqlValor = "1/(" + valorCotiz + "/ (SELECT VALOR FROM Cotizacion_Activo WHERE TIPO = 'BLUE' AND " +
-                            "IDFECHA = (SELECT MAX(IDFECHA) FROM Cotizacion_Activo WHERE TIPO = 'BOLSA')))";
+                        string sqlValor = "1/(" + valorCotiz + "/ (SELECT VALUE FROM ASSETQUOTES WHERE TYPE = 'BLUE' AND " +
+                            "DATE = (SELECT MAX(DATE) FROM ASSETQUOTES WHERE TYPE = 'BOLSA')))";
                         sqlQuery = sqlQuery.Replace("@VALOR", sqlValor);
 
                     }
@@ -407,11 +432,13 @@ namespace CargaCotizaciones
 
                 cotiz = nodo3.InnerHtml;
 
+                cotiz = cotiz.Replace(".", "").Replace("$", "").Replace(" ", "");
+
                 cotiz = cotiz.Replace(",", ".");
 
 
             }
-            else if (tipo == "Bonos")
+            else if (tipo == "Bono")
             {
                 HtmlWeb oWeb = new HtmlWeb();
                 HtmlDocument doc = oWeb.Load("https://www.allaria.com.ar/Bono/Especie/" + simbolo);
