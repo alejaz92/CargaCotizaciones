@@ -241,7 +241,7 @@ namespace CargaCotizaciones
                     sqlQuery = sqlQuery.Replace("@TIPO", tipo);
 
                     if (tipoActivo == "FCI" || tipoActivo == "Bono" || tipoActivo == "CEDEAR" ||
-                        tipoActivo == "Accion Argentina")
+                        tipoActivo == "Accion Argentina" || tipoActivo == "Obligacion Negociable")
                     {
                         string sqlValor = "1/(" + valorCotiz + "/ (SELECT VALUE FROM ASSETQUOTES WHERE TYPE = 'BLUE' AND " +
                             "DATE = (SELECT MAX(DATE) FROM ASSETQUOTES WHERE TYPE = 'BOLSA')))";
@@ -438,7 +438,7 @@ namespace CargaCotizaciones
 
 
             }
-            else if (tipo == "Bono")
+            else if (tipo == "Bono" || tipo == "Obligacion Negociable")
             {
                 HtmlWeb oWeb = new HtmlWeb();
                 HtmlDocument doc = oWeb.Load("https://www.allaria.com.ar/Bono/Especie/" + simbolo);
