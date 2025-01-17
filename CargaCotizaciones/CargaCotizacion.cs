@@ -58,7 +58,7 @@ namespace CargaCotizaciones
                 var sqlConsultaActivos = @"SELECT A.Id ASSETID, Symbol, AT.NAME ASSETTYPE
                                             FROM ASSETS A INNER JOIN ASSETTYPES 
                                             AT ON AT.ID = A.ASSETTYPEID
-                                            WHERE A.NAME  <> 'Dolar Estadounidense'
+                                            WHERE A.NAME  <> 'Dolar Estadounidense' AND A.ID = 75
                                             ORDER BY A.ID ASC;";
 
                 SqlCommand cmdActivos = null;
@@ -199,7 +199,7 @@ namespace CargaCotizaciones
 
 
                 string valorCotiz;
-                if (tipoActivo == "Moneda")
+                if (tipoActivo == "Moneda" || tipoActivo == "Accion USA")
                 {
                     valorCotiz = checkCotizacion(par, contCotiz);
                 }
