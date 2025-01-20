@@ -29,7 +29,7 @@ namespace CargaCotizaciones
         // 0 */5 * * * *
 
         [Function("CargaCotizaciones")]
-        public void Run([TimerTrigger("0 24 14 * * *")] TimerInfo myTimer)
+        public void Run([TimerTrigger("0 27 14 * * *")] TimerInfo myTimer)
         {
 
 
@@ -58,7 +58,7 @@ namespace CargaCotizaciones
                 var sqlConsultaActivos = @"SELECT A.Id ASSETID, Symbol, AT.NAME ASSETTYPE
                                             FROM ASSETS A INNER JOIN ASSETTYPES 
                                             AT ON AT.ID = A.ASSETTYPEID
-                                            WHERE A.NAME  <> 'Dolar Estadounidense' AND A.ID = 75
+                                            WHERE A.NAME  <> 'Dolar Estadounidense' 
                                             ORDER BY A.ID ASC;";
 
                 SqlCommand cmdActivos = null;
@@ -163,7 +163,7 @@ namespace CargaCotizaciones
                     insertCotizaciones(mon1.IdActivo.ToString(), mon2.IdActivo.ToString(), par + "BO", 0, mon2.TipoActivo);
                     insertCotizaciones(mon1.IdActivo.ToString(), mon2.IdActivo.ToString(), par + "T", 0, mon2.TipoActivo);
                 }
-                else if (mon2.TipoActivo == "Criptomoneda")
+                else if (mon2.TipoActivo == "Criptomoneda" || mon2.TipoActivo == "Accion USA")
                 {
                     contCotiz++;
                     par = mon2.Simbolo;
@@ -199,9 +199,14 @@ namespace CargaCotizaciones
 
 
                 string valorCotiz;
-                if (tipoActivo == "Moneda" || tipoActivo == "Accion USA")
+                if (tipoActivo == "Moneda")
                 {
                     valorCotiz = checkCotizacion(par, contCotiz);
+                }
+                else if (tipoActivo == "Accion USA")
+                {
+                    //valorCotiz = "1";
+                    valorCotiz = checkCotizacionAccionUSA(par, contCotiz);
                 }
                 else if (tipoActivo == "Criptomoneda")
                 {
@@ -333,10 +338,6 @@ namespace CargaCotizaciones
                 string currencyPair = par;
 
                 url = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={currencyPair.Substring(0, 3)}&to_currency={currencyPair.Substring(3)}&apikey={apiKey}";
-
-
-
-
             }
 
             try
@@ -408,6 +409,88 @@ namespace CargaCotizaciones
 
         }
 
+
+        public string checkCotizacionAccionUSA(string par, int contCotiz)
+        {
+            string cotiz;
+            string url;
+
+            string apiKey;
+            if (contCotiz <= 25)
+            {
+                apiKey = "VMFI7FT36ZW14QLB";
+            }
+            else if (contCotiz <= 50)
+            {
+                apiKey = "FDYDOY4B5LA56344";
+            }
+            else
+            {
+                apiKey = "CUKHS041RB7MRZSV";
+            }
+
+
+            string currencyPair = par;
+
+            //url = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={currencyPair.Substring(0, 3)}&to_currency={currencyPair.Substring(3)}&apikey={apiKey}";
+
+            url = $"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={currencyPair}&apikey={apiKey}";
+
+            try
+            {
+                using (WebClient wc = new WebClient())
+                {
+
+                    string json = wc.DownloadString(url);
+                    JObject data = JObject.Parse(json);
+
+                    if (data["Error Message"] != null)
+                    {
+                        //Console.WriteLine(data["Error Message"]);
+                        cotiz = null;
+                    }
+                    else
+                    {
+
+                        string check = Convert.ToString(data["Information"]);
+
+                        if (!check.Contains("limit is 25"))
+                        {
+
+                            decimal cotizDec = Convert.ToDecimal(data["Global Quote"]["05. price"]);
+                            cotiz = Convert.ToString(1 / cotizDec);
+                        }
+                        else
+                        {
+                            cotiz = null;
+                        }
+                        
+
+
+                    }
+
+                }
+
+            }
+
+            catch (WebException ex)
+
+            {
+                // Si hay un error de red, muestra el mensaje de error
+                Console.WriteLine("Error de red: " + ex.Message);
+                cotiz = null;
+
+            }
+
+            catch (Exception ex)
+            {
+                // Si hay otro tipo de error, muestra el mensaje de error
+                Console.WriteLine("Error: " + ex.Message);
+                cotiz = null;
+            }
+
+            return cotiz;
+        }
         public string checkCotizacionScrap(string simbolo, string tipo)
         {
             string cotiz = "0";
