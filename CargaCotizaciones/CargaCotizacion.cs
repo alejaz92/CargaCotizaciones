@@ -498,29 +498,33 @@ namespace CargaCotizaciones
             if (tipo == "FCI")
             {
                 HtmlWeb oWeb = new HtmlWeb();
-                HtmlDocument doc = oWeb.Load("https://bullmarketbrokers.com/Information/FundData?ticker=" + simbolo);
 
-                //HtmlNode Body = doc.DocumentNode.CssSelect("body").First();
-                //string sBody = Body.InnerHtml;
+                // Podés seguir usando la URL que ya usabas si te funciona,
+                // o probar directamente esta (la página de detalle del fondo)
+                var url = "https://bullmarketbrokers.com/Cotizaciones/Fondos/" + simbolo;
+                HtmlDocument doc = oWeb.Load(url);
 
-                //Console.WriteLine("https://bullmarketbrokers.com/Information/FundData?ticker=" + simbolo);
+                // Buscamos el span que tiene el precio que se muestra en pantalla
+                var priceNode = doc.DocumentNode.SelectSingleNode("//span[@id='displayPrice']");
 
+                // Fallback por si cambian el id pero dejan el fundLastPrice
+                if (priceNode == null)
+                    priceNode = doc.DocumentNode.SelectSingleNode("//span[@id='fundLastPrice']");
 
-                var nodo1 = doc.DocumentNode.CssSelect(".table-hover").Last();
+                if (priceNode == null)
+                    throw new Exception("Price node not found for symbol " + simbolo);
 
-                var nodo2 = nodo1.CssSelect("tr").First();
+                cotiz = priceNode.InnerText;
 
-                var nodo3 = nodo2.CssSelect("td").Last();
-
-
-                cotiz = nodo3.InnerHtml;
-
-                cotiz = cotiz.Replace(".", "").Replace("$", "").Replace(" ", "");
-
-                cotiz = cotiz.Replace(",", ".");
-
-
+                // Limpieza: sacamos símbolos y normalizamos separador decimal
+                cotiz = cotiz
+                    .Replace("ARS", "")
+                    .Replace("$", "")
+                    .Replace(" ", "")
+                    .Replace(".", "")  // miles
+                    .Replace(",", "."); // decimal
             }
+
             else if (tipo == "Bono" || tipo == "Obligacion Negociable")
             {
                 HtmlWeb oWeb = new HtmlWeb();
