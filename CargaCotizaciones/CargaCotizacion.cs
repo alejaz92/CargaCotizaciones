@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Extensions.Logging;
 using Microsoft.Data.SqlClient;
@@ -11,34 +11,42 @@ using ScrapySharp.Extensions;
 using System.Collections;
 using System.Net.Http;
 using System.Threading.Tasks;
+using System.Collections.Generic;
 
 namespace CargaCotizaciones
 {
     public class CargaCotizacion
     {
         private readonly ILogger _logger;
+        private static readonly HttpClient client = new HttpClient();
 
         public CargaCotizacion(ILoggerFactory loggerFactory)
         {
             _logger = loggerFactory.CreateLogger<CargaCotizacion>();
         }
 
-
-
-        //0 24 14 * * *
-        // 0 */5 * * * *
-
+        // 🔔 Función real, llamada por el Timer en Azure
         [Function("CargaCotizaciones")]
         public void Run([TimerTrigger("0 27 14 * * *")] TimerInfo myTimer)
         {
-
-
-            if (myTimer.ScheduleStatus is not null)
+            if (myTimer?.ScheduleStatus is not null)
             {
                 _logger.LogInformation($"Next timer schedule at: {myTimer.ScheduleStatus.Next}");
             }
 
+            EjecutarCargaCotizaciones();
+        }
 
+        // 🧪 Función para debug local (la vamos a llamar desde Program.cs)
+        public void RunLocal()
+        {
+            _logger.LogInformation($"[DEBUG LOCAL] CargaCotizaciones ejecutada manualmente a las: {DateTime.Now}");
+            EjecutarCargaCotizaciones();
+        }
+
+        // 🧠 Toda tu lógica original va acá
+        private void EjecutarCargaCotizaciones()
+        {
             try
             {
                 //conexion
@@ -49,11 +57,7 @@ namespace CargaCotizaciones
 
                 using var connection = new SqlConnection(connectionString);
 
-                
-
                 connection.Open();
-
-                
 
                 var sqlConsultaActivos = @"SELECT A.Id ASSETID, Symbol, AT.NAME ASSETTYPE
                                             FROM ASSETS A INNER JOIN ASSETTYPES 
@@ -63,14 +67,11 @@ namespace CargaCotizaciones
 
                 SqlCommand cmdActivos = null;
 
-               
-
                 cmdActivos = new SqlCommand(sqlConsultaActivos, connection);
 
                 SqlDataReader reader = cmdActivos.ExecuteReader();
 
                 List<Activo> ListaActivos = new List<Activo>();
-
 
                 while (reader.Read())
                 {
@@ -83,7 +84,6 @@ namespace CargaCotizaciones
 
                 reader.Close();
 
-
                 var consultaDolar = @"SELECT A.Id ASSETID, Symbol, AT.NAME ASSETTYPE
                                             FROM ASSETS A INNER JOIN ASSETTYPES 
                                             AT ON AT.ID = A.ASSETTYPEID
@@ -94,7 +94,7 @@ namespace CargaCotizaciones
                 cmdDolar = new SqlCommand(consultaDolar, connection);
 
                 SqlDataReader readerDolar = cmdDolar.ExecuteReader();
-                
+
                 Activo dolar = new Activo();
 
                 while (readerDolar.Read())
@@ -105,16 +105,12 @@ namespace CargaCotizaciones
                 }
                 reader.Close();
 
-
-                
-
                 int contCotiz = 0;
 
-
                 //datos api cripto
-
                 string apiKey = "3a299154-851c-4a53-96d9-9ea65ea9abf7";
 
+                client.DefaultRequestHeaders.Remove("X-CMC_PRO_API_KEY");
                 client.DefaultRequestHeaders.Add("X-CMC_PRO_API_KEY", apiKey);
 
                 foreach (Activo mon2 in ListaActivos)
@@ -125,29 +121,22 @@ namespace CargaCotizaciones
                     {
                         UpdateCotizacionesGral(dolar, mon2, contCotiz);
                     }
-                    
                 }
 
                 _logger.LogInformation($"Cotizaciones cargadas correctamente a las : {DateTime.Now}");
-                
             }
             catch (Exception Ex)
             {
-
                 Exception Excepcion = new Exception("Error al recuperar las cotizaciones", Ex);
 
                 _logger.LogInformation($"Error al cargar cotizaciones a las: {DateTime.Now}");
                 _logger.LogInformation(Ex.ToString());
-
             }
-
         }
 
         private int UpdateCotizacionesGral(Activo mon1, Activo mon2, int contCotiz)
         {
             string par = mon1.Simbolo + mon2.Simbolo;
-
-            
 
             if (mon2.TipoActivo != "Moneda" && mon2.TipoActivo != "Criptomoneda")
             {
@@ -156,7 +145,6 @@ namespace CargaCotizaciones
             }
             else
             {
-                
                 if (par == "USDARS")
                 {
                     insertCotizaciones(mon1.IdActivo.ToString(), mon2.IdActivo.ToString(), par + "B", 0, mon2.TipoActivo);
@@ -180,23 +168,17 @@ namespace CargaCotizaciones
             return contCotiz;
         }
 
-        private  void insertCotizaciones(string idMon1, string idMon2, string par, int contCotiz, string tipoActivo)
+        private void insertCotizaciones(string idMon1, string idMon2, string par, int contCotiz, string tipoActivo)
         {
-
-
             try
             {
-
                 // conexion
-                 string connectionString = Environment.GetEnvironmentVariable("SQLCONNSTR_SQLconnectionString", EnvironmentVariableTarget.Process);
+                string connectionString = Environment.GetEnvironmentVariable("SQLCONNSTR_SQLconnectionString", EnvironmentVariableTarget.Process);
                 //string connectionString = Environment.GetEnvironmentVariable("SQLconnectionString");
 
                 using var connection = new SqlConnection(connectionString);
 
                 connection.Open();
-
-
-
 
                 string valorCotiz;
                 if (tipoActivo == "Moneda")
@@ -258,9 +240,6 @@ namespace CargaCotizaciones
                         sqlQuery = sqlQuery.Replace("@VALOR", valorCotiz.Replace(",", "."));
                     }
 
-
-
-
                     insertSQL = new SqlCommand(sqlQuery, connection);
 
                     insertSQL.ExecuteNonQuery();
@@ -268,25 +247,17 @@ namespace CargaCotizaciones
             }
             catch (Exception Ex)
             {
-
                 Exception Excepcion = new Exception("Error al recuperar las cotizaciones", Ex);
-                
             }
         }
-        private static readonly HttpClient client = new HttpClient();
 
         public string checkCotizacionCripto(string simbolo, int contCotiz)
         {
-            string cotiz;
             string convertToCurrency = "USD";
-
-            
 
             string currencyPair = simbolo;
 
             var url = $"https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest?symbol={simbolo}&convert={convertToCurrency}";
-
-            
 
             // Realizar la solicitud GET
             HttpResponseMessage response = client.GetAsync(url).Result;
@@ -334,7 +305,6 @@ namespace CargaCotizaciones
                     apiKey = "CUKHS041RB7MRZSV";
                 }
 
-
                 string currencyPair = par;
 
                 url = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={currencyPair.Substring(0, 3)}&to_currency={currencyPair.Substring(3)}&apikey={apiKey}";
@@ -381,23 +351,18 @@ namespace CargaCotizaciones
                                 cotiz = null;
                             }
                         }
-
-
                     }
 
                 }
 
             }
-
             catch (WebException ex)
-
             {
                 // Si hay un error de red, muestra el mensaje de error
                 Console.WriteLine("Error de red: " + ex.Message);
                 cotiz = null;
 
             }
-
             catch (Exception ex)
             {
                 // Si hay otro tipo de error, muestra el mensaje de error
@@ -406,9 +371,7 @@ namespace CargaCotizaciones
             }
 
             return cotiz;
-
         }
-
 
         public string checkCotizacionAccionUSA(string par, int contCotiz)
         {
@@ -429,10 +392,7 @@ namespace CargaCotizaciones
                 apiKey = "CUKHS041RB7MRZSV";
             }
 
-
             string currencyPair = par;
-
-            //url = $"https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency={currencyPair.Substring(0, 3)}&to_currency={currencyPair.Substring(3)}&apikey={apiKey}";
 
             url = $"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol={currencyPair}&apikey={apiKey}";
 
@@ -464,24 +424,18 @@ namespace CargaCotizaciones
                         {
                             cotiz = null;
                         }
-                        
-
-
                     }
 
                 }
 
             }
-
             catch (WebException ex)
-
             {
                 // Si hay un error de red, muestra el mensaje de error
                 Console.WriteLine("Error de red: " + ex.Message);
                 cotiz = null;
 
             }
-
             catch (Exception ex)
             {
                 // Si hay otro tipo de error, muestra el mensaje de error
@@ -491,6 +445,7 @@ namespace CargaCotizaciones
 
             return cotiz;
         }
+
         public string checkCotizacionScrap(string simbolo, string tipo)
         {
             string cotiz = "0";
@@ -499,8 +454,8 @@ namespace CargaCotizaciones
             {
                 HtmlWeb oWeb = new HtmlWeb();
 
-                // Pod�s seguir usando la URL que ya usabas si te funciona,
-                // o probar directamente esta (la p�gina de detalle del fondo)
+                // Podés seguir usando la URL que ya usabas si te funciona,
+                // o probar directamente esta (la página de detalle del fondo)
                 var url = "https://bullmarketbrokers.com/Cotizaciones/Fondos/" + simbolo;
                 HtmlDocument doc = oWeb.Load(url);
 
@@ -516,14 +471,12 @@ namespace CargaCotizaciones
                     .Replace(",", ".");
 
             }
-
             else if (tipo == "Bono" || tipo == "Obligacion Negociable")
             {
                 HtmlWeb oWeb = new HtmlWeb();
                 HtmlDocument doc = oWeb.Load("https://www.allaria.com.ar/Bono/Especie/" + simbolo);
 
                 HtmlNode Body = doc.DocumentNode.CssSelect("body").First();
-                //string sBody = Body.InnerHtml;
 
                 var nodo1 = doc.DocumentNode.CssSelect(".float-left").First();
                 cotiz = nodo1.InnerHtml;
@@ -536,18 +489,11 @@ namespace CargaCotizaciones
                 HtmlWeb oWeb = new HtmlWeb();
                 HtmlDocument doc = oWeb.Load("https://iol.invertironline.com/titulo/cotizacion/BCBA/" + simbolo);
 
-                //HtmlNode Body = doc.DocumentNode.CssSelect("body").First();
-                //string sBody = Body.InnerHtml;
-
                 var nodo1 = doc.DocumentNode.CssSelect("span[data-field='UltimoPrecio']").First();
                 cotiz = nodo1.InnerHtml;
                 cotiz = cotiz.Replace(".", "").Replace("$", "").Replace(" ", "");
                 cotiz = cotiz.Replace(",", ".");
             }
-
-            //decimal transformacion = 1 / Convert.ToDecimal(cotiz);
-            //cotiz = transformacion.ToString();
-            //cotiz = cotiz.Replace(",", ".");
 
             return cotiz;
         }
