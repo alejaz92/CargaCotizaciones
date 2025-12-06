@@ -505,24 +505,16 @@ namespace CargaCotizaciones
                 HtmlDocument doc = oWeb.Load(url);
 
                 // Buscamos el span que tiene el precio que se muestra en pantalla
-                var priceNode = doc.DocumentNode.SelectSingleNode("//span[@id='displayPrice']");
-
-                // Fallback por si cambian el id pero dejan el fundLastPrice
-                if (priceNode == null)
-                    priceNode = doc.DocumentNode.SelectSingleNode("//span[@id='fundLastPrice']");
-
-                if (priceNode == null)
-                    throw new Exception("Price node not found for symbol " + simbolo);
-
+                var priceNode = doc.DocumentNode.CssSelect("#displayPrice").First();
                 cotiz = priceNode.InnerText;
 
-                // Limpieza: sacamos símbolos y normalizamos separador decimal
                 cotiz = cotiz
                     .Replace("ARS", "")
                     .Replace("$", "")
                     .Replace(" ", "")
-                    .Replace(".", "")  // miles
-                    .Replace(",", "."); // decimal
+                    .Replace(".", "")
+                    .Replace(",", ".");
+
             }
 
             else if (tipo == "Bono" || tipo == "Obligacion Negociable")
