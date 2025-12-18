@@ -234,8 +234,8 @@ namespace CargaCotizaciones
         /// </summary>
         private int UpdateCotizacionesGral(SqlConnection connection, Activo dolar, Activo activo, int contCotiz)
         {
-            var parBase = CotizacionConsts.UsdArsPar; // "USDARS"
-            var par = parBase + activo.Simbolo;
+            var par = dolar.Simbolo + activo.Simbolo;
+
 
             if (activo.TipoActivo != CotizacionConsts.AssetTypeCurrency &&
                 activo.TipoActivo != CotizacionConsts.AssetTypeCrypto)
