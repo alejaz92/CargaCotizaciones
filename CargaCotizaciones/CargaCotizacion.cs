@@ -47,7 +47,9 @@ namespace CargaCotizaciones
         public const string ApiDolarBase = "https://dolarapi.com/v1/dolares/";
         public const string ApiCMCBase = "https://pro-api.coinmarketcap.com/v1/cryptocurrency/quotes/latest";
         public const string ApiAlphaVantageBase = "https://www.alphavantage.co/query";
-        public const string ApiBmbFciBase = "https://bullmarketbrokers.com/Cotizaciones/Fondos/";
+        // La web vieja (bullmarketbrokers.com/Cotizaciones/Fondos/{simbolo}) ya no existe:
+        // ahora bullmarket.com.ar expone un JSON con todos los fondos en una sola llamada.
+        public const string ApiBmbFciUrl = "https://bullmarket.com.ar/wp-content/themes/sasico/cotizaciones/api.php?type=fondos";
         public const string ApiAllariaBondBase = "https://www.allaria.com.ar/Bono/Especie/";
         public const string ApiIolStockArBase = "https://iol.invertironline.com/titulo/cotizacion/BCBA/";
 
@@ -70,7 +72,6 @@ namespace CargaCotizaciones
         public const string AlphaFnGlobalQuote = "GLOBAL_QUOTE";
 
         // --- Selectores de scraping HTML ---
-        public const string SelectorFciPrice = "#displayPrice";
         public const string SelectorBondPriceContainer = ".float-left";
         public const string SelectorStockArPrice = "span[data-field='UltimoPrecio']";
 
@@ -90,6 +91,10 @@ namespace CargaCotizaciones
 
         // Connection string (se lee una vez)
         private readonly string _connectionString;
+
+        // Cache de precios de FCI: la API de BullMarket devuelve todos los fondos en una
+        // sola llamada, así que se descarga una vez por ejecución y se consulta por símbolo.
+        private Dictionary<string, decimal>? _preciosFci;
 
         public CargaCotizacion(ILoggerFactory loggerFactory)
         {
@@ -134,6 +139,9 @@ namespace CargaCotizaciones
         {
             try
             {
+                // Se limpia el cache para que cada ejecución traiga precios frescos.
+                _preciosFci = null;
+
                 using var connection = new SqlConnection(_connectionString);
                 connection.Open();
 
@@ -566,25 +574,15 @@ VALUES (
             {
                 if (tipo == CotizacionConsts.AssetTypeFCI)
                 {
-                    var web = new HtmlWeb();
-                    var url = CotizacionConsts.ApiBmbFciBase + simbolo;
-                    var doc = web.Load(url);
+                    _preciosFci ??= ObtenerPreciosFci();
 
-                    var priceNode = doc.DocumentNode.CssSelect(CotizacionConsts.SelectorFciPrice).FirstOrDefault();
-                    if (priceNode == null)
+                    if (!_preciosFci.TryGetValue(simbolo, out var precioFci))
                     {
-                        _logger.LogWarning($"No se encontró el nodo de precio para FCI {simbolo}");
+                        _logger.LogWarning($"No se encontró el FCI {simbolo} en la respuesta de BullMarket.");
                         return null;
                     }
 
-                    cotiz = priceNode.InnerText;
-
-                    cotiz = cotiz
-                        .Replace("ARS", "")
-                        .Replace("$", "")
-                        .Replace(" ", "")
-                        .Replace(".", "")
-                        .Replace(",", ".");
+                    cotiz = precioFci.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 }
                 else if (tipo == CotizacionConsts.AssetTypeBond || tipo == CotizacionConsts.AssetTypeON)
                 {
@@ -639,6 +637,38 @@ VALUES (
             }
 
             return cotiz;
+        }
+
+        /// <summary>
+        /// Descarga el listado completo de fondos de BullMarket (JSON) y arma un
+        /// diccionario símbolo → último precio (en ARS por cuotaparte).
+        /// </summary>
+        private Dictionary<string, decimal> ObtenerPreciosFci()
+        {
+            var precios = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                var json = _httpClient.GetStringAsync(CotizacionConsts.ApiBmbFciUrl).Result;
+                var fondos = JArray.Parse(json);
+
+                foreach (var fondo in fondos)
+                {
+                    var simbolo = fondo["symbol"]?.Value<string>();
+                    var precio = fondo["lastPrice"]?.Value<decimal>() ?? 0m;
+
+                    if (!string.IsNullOrWhiteSpace(simbolo) && precio > 0)
+                    {
+                        precios[simbolo] = precio;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error al obtener el listado de FCI de BullMarket.");
+            }
+
+            return precios;
         }
 
         private string SeleccionarApiKeyAlphavantage(int contCotiz)
