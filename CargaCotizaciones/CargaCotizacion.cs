@@ -50,8 +50,13 @@ namespace CargaCotizaciones
         // La web vieja (bullmarketbrokers.com/Cotizaciones/Fondos/{simbolo}) ya no existe:
         // ahora bullmarket.com.ar expone un JSON con todos los fondos en una sola llamada.
         public const string ApiBmbFciUrl = "https://bullmarket.com.ar/wp-content/themes/sasico/cotizaciones/api.php?type=fondos";
-        public const string ApiAllariaBondBase = "https://www.allaria.com.ar/Bono/Especie/";
         public const string ApiIolStockArBase = "https://iol.invertironline.com/titulo/cotizacion/BCBA/";
+        // Allaria (usada antes para Bono/ON) quedó detrás de un desafío anti-bot de Cloudflare
+        // que bloquea a HttpClient/HtmlAgilityPack aunque se les pase un User-Agent de navegador
+        // (es un bloqueo por fingerprint de TLS, no por headers). data912.com expone el mismo
+        // tipo de datos (bonos soberanos y obligaciones negociables) como JSON público sin protección.
+        public const string ApiData912BondsUrl = "https://data912.com/live/arg_bonds";
+        public const string ApiData912CorpUrl = "https://data912.com/live/arg_corp";
 
         // --- API Keys (por ahora hardcodeadas en este archivo) ---
         // OJO: en producción es recomendable mover esto a variables de entorno.
@@ -72,7 +77,6 @@ namespace CargaCotizaciones
         public const string AlphaFnGlobalQuote = "GLOBAL_QUOTE";
 
         // --- Selectores de scraping HTML ---
-        public const string SelectorBondPriceContainer = ".float-left";
         public const string SelectorStockArPrice = "span[data-field='UltimoPrecio']";
 
         // --- Nombre de la variable de entorno de la connection string SQL ---
@@ -95,6 +99,10 @@ namespace CargaCotizaciones
         // Cache de precios de FCI: la API de BullMarket devuelve todos los fondos en una
         // sola llamada, así que se descarga una vez por ejecución y se consulta por símbolo.
         private Dictionary<string, decimal>? _preciosFci;
+
+        // Cache de precios de Bonos y Obligaciones Negociables (data912.com, una llamada por tipo).
+        private Dictionary<string, decimal>? _preciosBonos;
+        private Dictionary<string, decimal>? _preciosON;
 
         public CargaCotizacion(ILoggerFactory loggerFactory)
         {
@@ -584,26 +592,29 @@ VALUES (
 
                     cotiz = precioFci.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 }
-                else if (tipo == CotizacionConsts.AssetTypeBond || tipo == CotizacionConsts.AssetTypeON)
+                else if (tipo == CotizacionConsts.AssetTypeBond)
                 {
-                    var web = new HtmlWeb();
-                    var url = CotizacionConsts.ApiAllariaBondBase + simbolo;
-                    var doc = web.Load(url);
+                    _preciosBonos ??= ObtenerPreciosData912(CotizacionConsts.ApiData912BondsUrl, "Bonos");
 
-                    var nodo1 = doc.DocumentNode.CssSelect(CotizacionConsts.SelectorBondPriceContainer).FirstOrDefault();
-                    if (nodo1 == null)
+                    if (!_preciosBonos.TryGetValue(simbolo, out var precioBono))
                     {
-                        _logger.LogWarning($"No se encontró el nodo de precio para Bono/ON {simbolo}");
+                        _logger.LogWarning($"No se encontró el Bono {simbolo} en la respuesta de data912.");
                         return null;
                     }
 
-                    var texto = nodo1.InnerHtml;
-                    var partes = texto.Split(',');
+                    cotiz = precioBono.ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+                else if (tipo == CotizacionConsts.AssetTypeON)
+                {
+                    _preciosON ??= ObtenerPreciosData912(CotizacionConsts.ApiData912CorpUrl, "Obligaciones Negociables");
 
-                    if (partes.Length > 0)
+                    if (!_preciosON.TryGetValue(simbolo, out var precioON))
                     {
-                        cotiz = partes[0].Replace("$", "").Replace(".", "");
+                        _logger.LogWarning($"No se encontró la ON {simbolo} en la respuesta de data912.");
+                        return null;
                     }
+
+                    cotiz = precioON.ToString(System.Globalization.CultureInfo.InvariantCulture);
                 }
                 else if (tipo == CotizacionConsts.AssetTypeCedear ||
                          tipo == CotizacionConsts.AssetTypeStockAR)
@@ -666,6 +677,38 @@ VALUES (
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error al obtener el listado de FCI de BullMarket.");
+            }
+
+            return precios;
+        }
+
+        /// <summary>
+        /// Descarga el listado de instrumentos (bonos u ONs) de data912.com y arma un
+        /// diccionario símbolo → último precio.
+        /// </summary>
+        private Dictionary<string, decimal> ObtenerPreciosData912(string url, string descripcion)
+        {
+            var precios = new Dictionary<string, decimal>(StringComparer.OrdinalIgnoreCase);
+
+            try
+            {
+                var json = _httpClient.GetStringAsync(url).Result;
+                var instrumentos = JArray.Parse(json);
+
+                foreach (var instrumento in instrumentos)
+                {
+                    var simbolo = instrumento["symbol"]?.Value<string>();
+                    var precio = instrumento["c"]?.Value<decimal>() ?? 0m;
+
+                    if (!string.IsNullOrWhiteSpace(simbolo) && precio > 0)
+                    {
+                        precios[simbolo] = precio;
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, $"Error al obtener el listado de {descripcion} de data912.");
             }
 
             return precios;
